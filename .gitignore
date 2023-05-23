@@ -1,6 +1,10 @@
 # TikTokNotifier-specific ignores
 token.txt
+cookie.txt
 config.json
+error.html
+error2.html
+error3.html
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -31,6 +31,7 @@ from discord.ext import commands
 from read_token import read_token
 from config import update_setting, Setting, delete_discord_user, \
     get_all_users_for_discord_user, get_user_for_discord_user, get_text_for_settings
+from polling import PollingCog
 
 def initialise_bot(command_prefix: str="?"):
     """Sets up and runs the bot.
@@ -53,6 +54,11 @@ def initialise_bot(command_prefix: str="?"):
     intents = discord.Intents.default()
     intents.message_content = True
     client = commands.Bot(command_prefix=command_prefix, intents=intents)
+
+    # Once the bot is ready, begin polling TikTok.
+    @client.event
+    async def on_ready():
+        await client.add_cog(PollingCog(client))
 
     # Setup the `notify` command.
     @client.command()

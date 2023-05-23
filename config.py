@@ -50,6 +50,10 @@ try:
 except Exception as e:
     print(f"COULDN'T READ FROM CONFIG FILE: {e}")
 
+"""List of the configured usernames. Needs to be a list because I want a defined
+order each time it is accessed during execution."""
+__CONFIG_USERNAMES = list(__CONFIG_CACHE.keys())
+
 def __write_config():
     global __CONFIG_CACHE
     with __CONFIG_FILE_LOCK:
@@ -61,9 +65,11 @@ def __write_config():
 
 def update_setting(username: str, user_id: str, setting: str, value):
     global __CONFIG_CACHE
+    global __CONFIG_USERNAMES
     with __CONFIG_LOCK:
         if username not in __CONFIG_CACHE:
             __CONFIG_CACHE[username] = {}
+            __CONFIG_USERNAMES.append(username)
         if user_id not in __CONFIG_CACHE[username]:
             __CONFIG_CACHE[username][user_id] = {}
         __CONFIG_CACHE[username][user_id][setting] = value
@@ -71,11 +77,13 @@ def update_setting(username: str, user_id: str, setting: str, value):
 
 def delete_discord_user(username: str, user_id: str):
     global __CONFIG_CACHE
+    global __CONFIG_USERNAMES
     with __CONFIG_LOCK:
         if username in __CONFIG_CACHE and user_id in __CONFIG_CACHE[username]:
             del __CONFIG_CACHE[username][user_id]
             if not __CONFIG_CACHE[username]:
                 del __CONFIG_CACHE[username]
+                __CONFIG_USERNAMES.remove(username)
         __write_config()
 
 def get_all_users_for_discord_user(user_id: str):
@@ -96,6 +104,12 @@ def get_user_for_discord_user(username: str, user_id: str):
         if username in __CONFIG_CACHE and user_id in __CONFIG_CACHE[username]:
             return __CONFIG_CACHE[username][user_id]
     return {}
+
+def get_usernames_and_config():
+    global __CONFIG_CACHE
+    global __CONFIG_USERNAMES
+    with __CONFIG_LOCK:
+        return (__CONFIG_USERNAMES.copy(), __CONFIG_CACHE.copy())
 
 def get_text_for_settings(videos: bool, lives: bool):
     if videos and lives:
