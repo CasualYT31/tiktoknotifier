@@ -26,8 +26,8 @@ SOFTWARE.
 # Private accounts have this appearing more than once:
 # Follow this account to see their contents and likes
 
-import json
 from subprocess import run
+from time import time as now
 
 import requests
 from discord.ext import tasks, commands
@@ -43,7 +43,8 @@ class PollingCog(commands.Cog):
         #   "username": {
         #       "previousLive": bool,
         #       "currentLive": bool,
-        #       "latestVideoID": int
+        #       "latestVideoID": int,
+        #       "lastWentLive": float
         #   }
         # }
         # Could add loop which cleans up state? Removes stale users?
@@ -99,7 +100,7 @@ class PollingCog(commands.Cog):
     # large scale work, though. If usernames are added and removed frequently, users
     # could be skipped over frequently, too.
     # https://github.com/carcabot/tiktok-signature/issues/105
-    @tasks.loop(seconds=5.0)
+    @tasks.loop(seconds=3.0)
     async def poller(self):
         # If there are no configured users, simply wait until there are.
         usernames, config = get_usernames_and_config()
@@ -141,7 +142,8 @@ class PollingCog(commands.Cog):
             self.state[username] = {
                 "previousLive": False,
                 "currentLive": False,
-                "latestVideoID": -1
+                "latestVideoID": -1,
+                "lastWentLive": 0.0
             }
 
         # Store the latest video ID. Always present since we already checked above.
@@ -181,7 +183,18 @@ class PollingCog(commands.Cog):
         # If this user went LIVE, send notifications.
         if not self.state[username]["previousLive"] and \
             self.state[username]["currentLive"]:
-            await self.live_notifications(config, username)
+            # Due to problems with the GET request, occasionally a user's
+            # page will be returned without the LIVE badge, despite them being LIVE.
+            # This will cause several LIVE notifications to fire off across a
+            # singular LIVE, and we need to prevent this. Easiest way is to prevent
+            # LIVE notifications being sent for the same user for 2 hours after they
+            # last went LIVE.
+            current_time = now()
+            if current_time - self.state[username]["lastWentLive"] > 7200.0:
+                self.state[username]["lastWentLive"] = current_time
+                await self.live_notifications(config, username)
+            else:
+                print(f"@{username} reported as LIVE again in under 2 hours.")
 
         # If this user uploaded a new video, send notifications.
         # Don't send any if this state is being set for the first time, however.

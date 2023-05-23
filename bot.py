@@ -57,7 +57,18 @@ def initialise_bot(command_prefix: str="?"):
     # Initialise the bot.
     intents = discord.Intents.default()
     intents.message_content = True
-    client = commands.Bot(command_prefix=command_prefix, intents=intents)
+    client = commands.Bot(command_prefix=command_prefix, intents=intents,
+                          help_command=None)
+    
+    # Custom help command.
+    @client.command()
+    async def help(ctx):
+        await ctx.send("TikTok bot that polls a user account every ~3 seconds.\n"
+                       "Use `?notify username [all/videos/lives/none]` to "
+                       "configure "
+                       "which users you receive notifications for (defaults to "
+                       "`all`). Use `?list [username]` to list your notification "
+                       "configurations.")
 
     # Once the bot is ready, begin polling TikTok.
     @client.event
