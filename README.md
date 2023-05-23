@@ -2,6 +2,7 @@
 This is a Discord bot that polls configured TikTok user pages to see if they have submitted new uploads or gone live, and notify relevant users via Direct Message.
 
 ## Dependencies
+This bot requires Python 3.11 or later due to use of `StrEnum`.
 You will need to install `discord.py` to run this code.
 
 ## Token
