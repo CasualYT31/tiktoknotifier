@@ -27,6 +27,7 @@ SOFTWARE.
 # Follow this account to see their contents and likes
 
 import json
+from subprocess import run
 
 import requests
 from discord.ext import tasks, commands
@@ -72,6 +73,10 @@ class PollingCog(commands.Cog):
             if settings[Setting.LIVES]:
                 await self.DM(user_id, f"`@{username}` went LIVE! "
                               f"<https://www.tiktok.com/@{username}/live>")
+            if Setting.ALARM in settings and settings[Setting.ALARM]:
+                # Will only work for me, on my Windows laptop.
+                run("START /B \"C:\\Program Files\\VLC\\vlc\" alarm.ogg",
+                    shell=True)
 
     async def video_notifications(self, config: dict, username: str, video_id: int):
         # Extremely unlikely to be more than one upload for small use-cases.
@@ -185,3 +190,6 @@ class PollingCog(commands.Cog):
             if previous_video_id >= 0:
                 await self.video_notifications(config, username,
                                               self.state[username]["latestVideoID"])
+        
+        # Single dot means poll succeeded.
+        print(".", end='', flush=True)

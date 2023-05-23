@@ -32,6 +32,7 @@ class Setting(StrEnum):
 
     VIDEOS = "videos"
     LIVES = "lives"
+    ALARM = "alarm"
 
 """Lock used to guard access to the configuration."""
 __CONFIG_LOCK = Lock()
@@ -73,6 +74,24 @@ def update_setting(username: str, user_id: str, setting: str, value):
         if user_id not in __CONFIG_CACHE[username]:
             __CONFIG_CACHE[username][user_id] = {}
         __CONFIG_CACHE[username][user_id][setting] = value
+        __write_config()
+
+def delete_setting(username: str, user_id: str, setting: str):
+    global __CONFIG_CACHE
+    global __CONFIG_USERNAMES
+    with __CONFIG_LOCK:
+        if username not in __CONFIG_CACHE:
+            __CONFIG_CACHE[username] = {}
+            __CONFIG_USERNAMES.append(username)
+        if user_id not in __CONFIG_CACHE[username]:
+            __CONFIG_CACHE[username][user_id] = {}
+        if setting in __CONFIG_CACHE[username][user_id]:
+            del __CONFIG_CACHE[username][user_id][setting]
+        if not __CONFIG_CACHE[username][user_id]:
+            del __CONFIG_CACHE[username][user_id]
+            if not __CONFIG_CACHE[username]:
+                del __CONFIG_CACHE[username]
+                __CONFIG_USERNAMES.remove(username)
         __write_config()
 
 def delete_discord_user(username: str, user_id: str):

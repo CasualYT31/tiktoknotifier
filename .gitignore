@@ -2,9 +2,11 @@
 token.txt
 cookie.txt
 config.json
+owner.txt
 error.html
 error2.html
 error3.html
+alarm.ogg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

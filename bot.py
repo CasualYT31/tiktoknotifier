@@ -29,7 +29,7 @@ from discord.ext import commands
 
 # TikTokNotifier Imports.
 from read_token import read_token
-from config import update_setting, Setting, delete_discord_user, \
+from config import update_setting, Setting, delete_discord_user, delete_setting, \
     get_all_users_for_discord_user, get_user_for_discord_user, get_text_for_settings
 from polling import PollingCog
 
@@ -49,6 +49,10 @@ def initialise_bot(command_prefix: str="?"):
 
     # Read the token from "./token.txt".
     TOKEN = read_token()
+
+    # Read bot maintainer's user ID from "./owner.txt".
+    with open("./owner.txt") as owner_txt:
+        OWNER_ID = owner_txt.read().strip()
 
     # Initialise the bot.
     intents = discord.Intents.default()
@@ -112,8 +116,13 @@ def initialise_bot(command_prefix: str="?"):
             if settings:
                 what_for = get_text_for_settings(
                     videos=settings[Setting.VIDEOS], lives=settings[Setting.LIVES])
+                alarm_setting = ""
+                if user_id == OWNER_ID:
+                    if Setting.ALARM in settings and settings[Setting.ALARM]:
+                        alarm_setting = "**You will receive an alarm when this " \
+                            "account goes LIVE!**"
                 await ctx.send("You are currently set to receive notifications for "
-                               f"`@{username}`'s {what_for}.")
+                               f"`@{username}`'s {what_for}. {alarm_setting}")
             else:
                 await ctx.send("You are currently set to receive **no** "
                                f"notifications for `@{username}`.")
@@ -127,10 +136,35 @@ def initialise_bot(command_prefix: str="?"):
                     what_for = get_text_for_settings(
                         videos=settings[Setting.VIDEOS],
                         lives=settings[Setting.LIVES])
-                    msg += f"`@{username}`: {what_for}.\n"
+                    alarm_setting = ""
+                    if user_id == OWNER_ID:
+                        if Setting.ALARM in settings and settings[Setting.ALARM]:
+                            alarm_setting = " **You will receive an alarm when " \
+                                "this account goes LIVE!**"
+                    msg += f"`@{username}`: {what_for}.{alarm_setting}\n"
                 await ctx.send(msg)
             else:
                 await ctx.send("You are currently set to receive no notifications.")
+    
+    # Setup the `alarm` admin command.
+    @client.command()
+    async def alarm(ctx, username, flag: bool):
+        # Only allow the maintainer of the bot to operate this command!
+        user_id = str(ctx.author.id)
+        username = username.lower()
+        if (user_id != OWNER_ID):
+            await ctx.send("Only the bot's owner is allowed to use this command!")
+            return
+        # Set alarm property for the given user.
+        if flag:
+            update_setting(username, user_id, Setting.ALARM, True)
+        else:
+            delete_setting(username, user_id, Setting.ALARM)
+        await ctx.send(f"Setting `@{username}`'s alarm setting to {flag}.")
+    @alarm.error
+    async def alarm_error(ctx, error):
+        if isinstance(error, commands.BadBoolArgument):
+            await ctx.send("The second argument must be a bool parameter!")
     
     # Launch the bot.
     client.run(TOKEN)
