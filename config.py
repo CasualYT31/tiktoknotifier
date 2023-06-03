@@ -33,6 +33,7 @@ class Setting(StrEnum):
     VIDEOS = "videos"
     LIVES = "lives"
     ALARM = "alarm"
+    FILTER = "filter"
 
 """Lock used to guard access to the configuration."""
 __CONFIG_LOCK = Lock()

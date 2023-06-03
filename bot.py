@@ -68,7 +68,18 @@ def initialise_bot(command_prefix: str="?"):
                        "configure "
                        "which users you receive notifications for (defaults to "
                        "`all`). Use `?list [username]` to list your notification "
-                       "configurations.")
+                       "configurations.\n"
+                       "Use `?filter username [filters...]` to apply filters to "
+                       "video captions. This means you'll only get a video "
+                       "notification for the given user if their video's caption "
+                       "has at least one of the words or phrases you give to the "
+                       "command. E.g. `?filter abc123 hi #meme \"Filter "
+                       "Challenge\"` will mean that new uploads will only be "
+                       "reported if their caption contains one of \"hi\", "
+                       "\"meme\", or \"Filter Challenge\". You can issue no "
+                       "filters to remove the filters applied to the user. If a "
+                       "user has no filters (default), all video uploads will be "
+                       "reported.")
 
     # Once the bot is ready, begin polling TikTok.
     @client.event
@@ -115,6 +126,45 @@ def initialise_bot(command_prefix: str="?"):
             await ctx.send("Please provide the username of the TikTok account you "
                            "want to be notified of!")
     
+    # Setup the `filter` command.
+    @client.command()
+    async def filter(ctx, username: str, *filters: str):
+        user_id = str(ctx.author.id)
+        username = username.lower()
+        # Grab a copy of the current filters, if they exist.
+        settings = get_user_for_discord_user(username, user_id)
+        if Setting.FILTER in settings:
+            old_filters = settings[Setting.FILTER].copy()
+        else:
+            old_filters = []
+        # Replace the old filters with new ones. If no filters are given, remove
+        # them!
+        new_filters = []
+        for f in filters:
+            new_filters.append(f)
+        if len(new_filters) == 0:
+            delete_setting(username, user_id, Setting.FILTER)
+            await ctx.send(f"Removed the following filters from `@{username}`:\n"
+                           f"```\n{old_filters}\n```")
+        else:
+            # If VIDEOS and LIVES settings aren't set yet, initialise them.
+            if Setting.VIDEOS not in settings:
+                update_setting(username, user_id, Setting.VIDEOS, True)
+                await ctx.send(f"You are now being notified when `@{username}` "
+                               "uploads a video.")
+            if Setting.LIVES not in settings:
+                update_setting(username, user_id, Setting.LIVES, False)
+            # Update FILTER setting.
+            update_setting(username, user_id, Setting.FILTER, new_filters)
+            await ctx.send(f"Added new filters to `@{username}`:\n"
+                           f"```\n{new_filters}\n```\n"
+                           f"Old filters:\n```\n{old_filters}\n```")
+    @filter.error
+    async def filter_error(ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("Please provide the username of the TikTok account you "
+                           "want to apply filters to!")
+    
     # Setup the `list` command.
     @client.command()
     async def list(ctx, username=""):
@@ -127,13 +177,17 @@ def initialise_bot(command_prefix: str="?"):
             if settings:
                 what_for = get_text_for_settings(
                     videos=settings[Setting.VIDEOS], lives=settings[Setting.LIVES])
+                filters = ""
+                if Setting.FILTER in settings:
+                    filters = " Filters applied to video uploads: `" \
+                              f"{settings[Setting.FILTER]}`."
                 alarm_setting = ""
                 if user_id == OWNER_ID:
                     if Setting.ALARM in settings and settings[Setting.ALARM]:
-                        alarm_setting = "**You will receive an alarm when this " \
+                        alarm_setting = " **You will receive an alarm when this " \
                             "account goes LIVE!**"
                 await ctx.send("You are currently set to receive notifications for "
-                               f"`@{username}`'s {what_for}. {alarm_setting}")
+                            f"`@{username}`'s {what_for}.{filters}{alarm_setting}")
             else:
                 await ctx.send("You are currently set to receive **no** "
                                f"notifications for `@{username}`.")
@@ -147,12 +201,16 @@ def initialise_bot(command_prefix: str="?"):
                     what_for = get_text_for_settings(
                         videos=settings[Setting.VIDEOS],
                         lives=settings[Setting.LIVES])
+                    filters = ""
+                    if Setting.FILTER in settings:
+                        filters = " Filters applied to videos: " \
+                                 f"`{settings[Setting.FILTER]}`."
                     alarm_setting = ""
                     if user_id == OWNER_ID:
                         if Setting.ALARM in settings and settings[Setting.ALARM]:
                             alarm_setting = " **You will receive an alarm when " \
                                 "this account goes LIVE!**"
-                    msg += f"`@{username}`: {what_for}.{alarm_setting}\n"
+                    msg += f"`@{username}`: {what_for}.{filters}{alarm_setting}\n"
                 await ctx.send(msg)
             else:
                 await ctx.send("You are currently set to receive no notifications.")

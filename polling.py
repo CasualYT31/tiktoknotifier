@@ -83,8 +83,34 @@ class PollingCog(commands.Cog):
         # Extremely unlikely to be more than one upload for small use-cases.
         for user_id, settings in config[username].items():
             if settings[Setting.VIDEOS]:
+                # If this user has filters configured with it, only send
+                # notification if at least one of the words is found in the video's
+                # caption.
+                video_url = f"@{username}/video/{video_id}"
+                if Setting.FILTER in settings:
+                    video_page = self.get_request(video_url)
+                    # Find location of "browse-video-desc". This contains the
+                    # caption of the video (it should be there even if the caption
+                    # is empty). If we can't find it then just ignore the filter.
+                    location = video_page.find("browse-video-desc")
+                    if location != -1:
+                        # Find out which type of element browse-video-desc is. Could
+                        # be div or h1.
+                        opening_tag_location = video_page.rfind("<", 0, location)
+                        if opening_tag_location != 1:
+                            space_location = \
+                                video_page.find(" ", opening_tag_location)
+                            if space_location != 1:
+                                element_type = video_page \
+                                        [opening_tag_location + 1:space_location]
+                                end_location = \
+                                    video_page.find(f"</{element_type}>", location)
+                                if end_location != -1 and not \
+                                    any(word in video_page[location:end_location] \
+                                        for word in settings[Setting.FILTER]):
+                                    continue
                 await self.DM(user_id, f"New upload from `@{username}`! "
-                           f"<https://www.tiktok.com/@{username}/video/{video_id}>")
+                           f"<https://www.tiktok.com/{video_url}>")
     
     def get_request(self, url: str):
         return str(requests.get(f"https://www.tiktok.com/{url}",
@@ -111,6 +137,7 @@ class PollingCog(commands.Cog):
         self.username_counter += 1
         if self.username_counter >= len(usernames):
             self.username_counter = 0
+            print(";", end='', flush=True)
         
         # Fire off GET request for the user.
         username = usernames[self.username_counter]
