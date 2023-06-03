@@ -37,7 +37,8 @@ from config import get_usernames_and_config, Setting
 class PollingCog(commands.Cog):
     def __init__(self, client):
         self.client = client
-        self.username_counter = 0
+        self.even_username_counter = 0
+        self.odd_username_counter = 1
         # Format:
         # {
         #   "username": {
@@ -60,10 +61,12 @@ class PollingCog(commands.Cog):
                 self.cookie = cookie_file.read()
         except Exception as e:
             print("Could not read cookie! " + e)
-        self.poller.start()
+        self.even_poller.start()
+        self.odd_poller.start()
 
     def cog_unload(self):
-        self.poller.cancel()
+        self.even_poller.cancel()
+        self.odd_poller.cancel()
     
     async def DM(self, user_id: str, msg: str):
         user = await self.client.fetch_user(user_id)
@@ -126,21 +129,26 @@ class PollingCog(commands.Cog):
     # large scale work, though. If usernames are added and removed frequently, users
     # could be skipped over frequently, too.
     # https://github.com/carcabot/tiktok-signature/issues/105
-    @tasks.loop(seconds=3.0)
-    async def poller(self):
+    async def poller(self, even_users: bool):
         # If there are no configured users, simply wait until there are.
         usernames, config = get_usernames_and_config()
-        if len(usernames) == 0:
+        if len(usernames) == 0 or (len(usernames) == 1 and not even_users):
             return
         
         # Increment username counter, and adjust it if it falls out of range.
-        self.username_counter += 1
-        if self.username_counter >= len(usernames):
-            self.username_counter = 0
-            print(";", end='', flush=True)
-        
-        # Fire off GET request for the user.
-        username = usernames[self.username_counter]
+        # And fire off GET request for the user.
+        if even_users:
+            self.even_username_counter += 2
+            if self.even_username_counter >= len(usernames):
+                self.even_username_counter = 0
+                print("0", end='', flush=True)
+            username = usernames[self.even_username_counter]
+        else:
+            self.odd_username_counter += 2
+            if self.odd_username_counter >= len(usernames):
+                self.odd_username_counter = 1
+                print("1", end='', flush=True)
+            username = usernames[self.odd_username_counter]
         response = self.get_request(f"@{username}")
 
         # Is TikTok beginning to deny access? In which case, ignore this request.
@@ -233,3 +241,11 @@ class PollingCog(commands.Cog):
         
         # Single dot means poll succeeded.
         print(".", end='', flush=True)
+    
+    @tasks.loop(seconds=3.0)
+    async def even_poller(self):
+        await self.poller(True)
+        
+    @tasks.loop(seconds=3.0)
+    async def odd_poller(self):
+        await self.poller(False)
