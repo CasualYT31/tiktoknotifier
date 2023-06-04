@@ -31,7 +31,7 @@ from discord.ext import commands
 from read_token import read_token
 from config import update_setting, Setting, delete_discord_user, delete_setting, \
     get_all_users_for_discord_user, get_user_for_discord_user, get_text_for_settings
-from polling import PollingCog
+from poller import PollingCog
 
 def initialise_bot(command_prefix: str="?"):
     """Sets up and runs the bot.
@@ -51,7 +51,7 @@ def initialise_bot(command_prefix: str="?"):
     TOKEN = read_token()
 
     # Read bot maintainer's user ID from "./owner.txt".
-    with open("./owner.txt") as owner_txt:
+    with open("./owner.txt", mode='r', encoding='utf-8') as owner_txt:
         OWNER_ID = owner_txt.read().strip()
 
     # Initialise the bot.
@@ -226,6 +226,14 @@ def initialise_bot(command_prefix: str="?"):
             return
         # Set alarm property for the given user.
         if flag:
+            # If VIDEOS and LIVES settings aren't set yet, initialise them.
+            settings = get_user_for_discord_user(username, user_id)
+            if Setting.VIDEOS not in settings:
+                update_setting(username, user_id, Setting.VIDEOS, False)
+            if Setting.LIVES not in settings:
+                update_setting(username, user_id, Setting.LIVES, True)
+                await ctx.send(f"You are now being notified when `@{username}` "
+                               "goes LIVE.")
             update_setting(username, user_id, Setting.ALARM, True)
         else:
             delete_setting(username, user_id, Setting.ALARM)

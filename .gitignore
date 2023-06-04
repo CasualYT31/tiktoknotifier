@@ -2,10 +2,10 @@
 token.txt
 cookie.txt
 config.json
+state.json
 owner.txt
+log_channel.txt
 error.html
-error2.html
-error3.html
 alarm.ogg
 
 # Byte-compiled / optimized / DLL files
