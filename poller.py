@@ -53,6 +53,8 @@ class PollingCog(commands.Cog):
         try:
             with open(self.STATE_FILE_PATH, mode='r', encoding='utf-8') as f:
                 self.state = json.loads(f.read())
+        except FileNotFoundError:
+            self.state = {}
         except Exception as e:
             print(f"COULDN'T LOAD STATE: {e}")
 
