@@ -29,6 +29,7 @@ from threading import Lock
 from http.cookies import SimpleCookie
 from requests.cookies import RequestsCookieJar
 
+from discord import File
 from discord.ext import tasks, commands
 from requests_html import AsyncHTMLSession
 from numpy import array_split
@@ -145,7 +146,7 @@ class PollingCog(commands.Cog):
         # Is TikTok beginning to deny access? In which case, ignore this request.
         if "Access Denied" in response.html.html:
             await self.error(f"Access denied when polling for @{username}!",
-                             group_number)
+                             group_number, response.html)
             return
         
         # In a similar vein, TikTok can have brief periods where it responds with an
@@ -164,7 +165,7 @@ class PollingCog(commands.Cog):
         error_strings = self.check_for_error_div(div_elements)
         if len(error_strings) > 0:
             await self.error(f"Couldn't retrieve latest uploads for @{username}: "
-                             f"{error_strings}", group_number)
+                             f"{error_strings}", group_number, response.html)
             return
         
         # Find the latest video's ID and caption. If they couldn't be found, ignore
@@ -172,9 +173,7 @@ class PollingCog(commands.Cog):
         latest_video_id, latest_video_caption, error_string = \
             self.find_latest_video(username, div_elements)
         if len(error_string) > 0:
-            await self.error(error_string, group_number)
-            with open("error.html", mode='w', encoding='utf-8') as f:
-                f.write(response.html.html)
+            await self.error(error_string, group_number, response.html)
             return
         
         # Is this user now LIVE?
@@ -347,12 +346,22 @@ class PollingCog(commands.Cog):
         user = await self.client.fetch_user(user_id)
         await user.send(msg)
     
-    async def error(self, msg: str, group_number: int=None):
+    async def error(self, msg: str, group_number: int=None, html_response=None):
         if group_number is not None:
             self.print_char('!', group_number)
         try:
             channel = await self.client.fetch_channel(self.LOG_CHANNEL)
-            await channel.send(msg)
+            # If a HTML response is provided, write it to a file and attach it.
+            attachment = None
+            if html_response is not None:
+                try:
+                    filepath = f"error_{group_number}.html"
+                    with open(filepath, mode='w', encoding='utf-8') as f:
+                        f.write(html_response.html)
+                    attachment = File(filepath)
+                except: # Couldn't create attachment.
+                    self.print_char('?', group_number)
+            await channel.send(content=msg, file=attachment)
         except Exception as e:
             # No valid log channel ID, just print it instead.
             print(msg)
