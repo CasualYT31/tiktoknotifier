@@ -65,7 +65,7 @@ def initialise_bot(command_prefix: str="?"):
     @client.command()
     async def help(ctx):
         await ctx.send("TikTok bot that polls a user account every ~3 seconds.\n"
-                       "Use `?notify username [all/videos/lives/none]` to "
+                       "Use `?notify username [all/videos/lives/none/monitor]` to "
                        "configure "
                        "which users you receive notifications for (defaults to "
                        "`all`). Use `?list [username]` to list your notification "
@@ -98,29 +98,41 @@ def initialise_bot(command_prefix: str="?"):
         username = username.lower()
         option = option.lower()
         if option != "all" and option != "videos" and option != "lives" and \
-            option != "none":
+            option != "none" and option != "monitor":
             await ctx.send("Please provide the following for the second "
                            "parameter:\n- `all` to be notified of both lives and "
                            "new videos (default).\n- `videos` to be notified of "
                            "videos only.\n- `lives` to be notified of lives only.\n"
                            "- `none` to stop all notifications for the user "
-                           f"`@{username}`.")
+                           f"`@{username}`.\n- `monitor` to be notified of when a "
+                           "user account can be found or cannot be found. You "
+                           "cannot receive notifications for videos or lives for "
+                           "this account.")
             return
         elif option == "all":
             update_setting(username, user_id, Setting.VIDEOS, True)
             update_setting(username, user_id, Setting.LIVES, True)
+            delete_setting(username, user_id, Setting.MONITOR)
             await ctx.send(f'Okay, I will DM you when `@{username}` uploads new '
                            'videos and when they go live!')
         elif option == "videos":
             update_setting(username, user_id, Setting.VIDEOS, True)
             update_setting(username, user_id, Setting.LIVES, False)
+            delete_setting(username, user_id, Setting.MONITOR)
             await ctx.send(f'Okay, I will DM you when `@{username}` uploads new '
                            'videos, but not when they go live!')
         elif option == "lives":
             update_setting(username, user_id, Setting.VIDEOS, False)
             update_setting(username, user_id, Setting.LIVES, True)
+            delete_setting(username, user_id, Setting.MONITOR)
             await ctx.send(f'Okay, I will DM you when `@{username}` goes live, but '
                            'not when they upload new videos!')
+        elif option == "monitor":
+            update_setting(username, user_id, Setting.VIDEOS, False)
+            update_setting(username, user_id, Setting.LIVES, False)
+            update_setting(username, user_id, Setting.MONITOR, True)
+            await ctx.send(f'Okay, I will DM you when the `@{username}` account '
+                           'becomes available or unavailable.')
         elif option == "none":
             delete_discord_user(username, user_id)
             await ctx.send(f'Okay, I will **not** DM you when `@{username}` '
@@ -181,7 +193,8 @@ def initialise_bot(command_prefix: str="?"):
             settings = get_user_for_discord_user(username, user_id)
             if settings:
                 what_for = get_text_for_settings(
-                    videos=settings[Setting.VIDEOS], lives=settings[Setting.LIVES])
+                    videos=settings[Setting.VIDEOS], lives=settings[Setting.LIVES],
+                    monitor=Setting.MONITOR in settings)
                 filters = ""
                 if Setting.FILTER in settings:
                     filters = " Filters applied to video uploads: `" \
@@ -205,7 +218,8 @@ def initialise_bot(command_prefix: str="?"):
                 for username, settings in usernames.items():
                     what_for = get_text_for_settings(
                         videos=settings[Setting.VIDEOS],
-                        lives=settings[Setting.LIVES])
+                        lives=settings[Setting.LIVES],
+                        monitor=Setting.MONITOR in settings)
                     filters = ""
                     if Setting.FILTER in settings:
                         filters = " Filters applied to videos: " \

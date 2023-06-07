@@ -161,6 +161,11 @@ class PollingCog(commands.Cog):
             self.print_char('!', group_number)
             return
         
+        # Are we monitoring this account, instead of reporting uploads and LIVES?
+        monitor_account = any([Setting.MONITOR in settings for settings in
+                               config[username].values()])
+        is_available = True
+        
         # If there is an element which has the 'DivErrorContainer', then something
         # is wrong with the page. Could be that it is a private account, or the
         # account doesn't exist, or they haven't uploaded anything yet. Report it in
@@ -168,18 +173,25 @@ class PollingCog(commands.Cog):
         div_elements = response.html.find('div')
         error_strings = self.check_for_error_div(div_elements)
         if len(error_strings) > 0:
-            self.record_error_div(username, error_strings[0])
-            await self.error(f"Couldn't retrieve latest uploads for @{username}: "
-                             f"{error_strings}", group_number, response.html)
-            return
+            if monitor_account and \
+                "couldn't find this account" in error_strings[0].strip().lower():
+                is_available = False
+            else:
+                self.record_error_div(username, error_strings[0])
+                await self.error(f"Couldn't retrieve latest uploads for @{username}: "
+                                f"{error_strings}", group_number, response.html)
+                return
         
         # Find the latest video's ID and caption. If they couldn't be found, ignore
         # this user.
-        latest_video_id, latest_video_caption, error_string = \
-            self.find_latest_video(username, div_elements)
-        if len(error_string) > 0:
-            await self.error(error_string, group_number, response.html)
-            return
+        if monitor_account:
+            latest_video_id, latest_video_caption, error_string = -1, "", ""
+        else:
+            latest_video_id, latest_video_caption, error_string = \
+                self.find_latest_video(username, div_elements)
+            if len(error_string) > 0:
+                await self.error(error_string, group_number, response.html)
+                return
         
         # Is this user now LIVE?
         is_live = "SpanLiveBadge" in response.html.html
@@ -188,23 +200,33 @@ class PollingCog(commands.Cog):
         # doesn't already exist. And update the LIVE flags.
         previous_video_id = await self.update_user_state(username,
                                                          latest_video_id,
-                                                         is_live)
+                                                         is_live,
+                                                         is_available)
         
-        # If the stored video ID is larger than the latest video ID, it's likely the
-        # video became unavailable later. Send notification for it. Otherwise, if
-        # the latest video ID is larger, a new upload has been made, so send
-        # notification for that, too. Only send notifications if this isn't the
-        # first time a user's video ID has been retrieved.
-        if previous_video_id >= 0:
-            if previous_video_id > latest_video_id:
-                await self.notify_deleted_video(config, username, previous_video_id)
-            elif previous_video_id < latest_video_id:
-                await self.notify_video(config, username, latest_video_id, \
-                                        latest_video_caption)
-    
-        # If the user went LIVE, send notification.
-        if not self.state[username]["wasLive"] and self.state[username]["isLive"]:
-            await self.notify_live(config, username)
+        if monitor_account:
+            if not self.state[username]["wasAvailable"] and \
+                self.state[username]["isAvailable"]:
+                await self.notify_monitor(config, username, True)
+            elif self.state[username]["wasAvailable"] and \
+                not self.state[username]["isAvailable"]:
+                await self.notify_monitor(config, username, False)
+        else:
+            # If the stored video ID is larger than the latest video ID, it's likely
+            # the video became unavailable later. Send notification for it.
+            # Otherwise,
+            # if the latest video ID is larger, a new upload has been made, so send
+            # notification for that, too. Only send notifications if this isn't the
+            # first time a user's video ID has been retrieved.
+            if previous_video_id >= 0:
+                if previous_video_id > latest_video_id:
+                    await self.notify_deleted_video(config, username, previous_video_id)
+                elif previous_video_id < latest_video_id:
+                    await self.notify_video(config, username, latest_video_id, \
+                                            latest_video_caption)
+        
+            # If the user went LIVE, send notification.
+            if not self.state[username]["wasLive"] and self.state[username]["isLive"]:
+                await self.notify_live(config, username)
         
         # Indicate via console that this poll was successful.
         record_successful_poll(username)
@@ -315,17 +337,27 @@ class PollingCog(commands.Cog):
             return -1, "", f"Could not convert video ID to int for @{username}! " \
                            f"{latest_video_id}. {e}"
     
-    async def update_user_state(self, username: str, latest_video_id: int, is_live: bool):
+    async def update_user_state(self, username: str, latest_video_id: int,
+                                is_live: bool, is_available: bool):
         if username not in self.state:
             self.state[username] = {
                 "wasLive": False,
                 "isLive": False,
-                "latestVideoID": -1
+                "latestVideoID": -1,
+                "wasAvailable": False,
+                "isAvailable": False
             }
         self.state[username]["wasLive"] = self.state[username]["isLive"]
         self.state[username]["isLive"] = is_live
         previous_video_id = self.state[username]["latestVideoID"]
         self.state[username]["latestVideoID"] = latest_video_id
+        if "isAvailable" in self.state[username]:
+            self.state[username]["wasAvailable"] = \
+                self.state[username]["isAvailable"]
+            self.state[username]["isAvailable"] = is_available
+        else:
+            self.state[username]["wasAvailable"] = is_available
+            self.state[username]["isAvailable"] = is_available
         await self.write_state()
         return previous_video_id
 
@@ -337,6 +369,13 @@ class PollingCog(commands.Cog):
             except Exception as e:
                 await self.error(f"COULDN'T WRITE TO STATE FILE: {e}")
     
+    async def notify_monitor(self, config: dict, username: str, available: bool):
+        for user_id, settings in config[username].items():
+            if settings[Setting.MONITOR]:
+                await self.DM(user_id, f"`@{username}` became "
+                              f"{'available' if available else 'unavailable'}! "
+                              f"<https://www.tiktok.com/@{username}/>")
+
     async def notify_live(self, config: dict, username: str):
         for user_id, settings in config[username].items():
             if settings[Setting.LIVES]:

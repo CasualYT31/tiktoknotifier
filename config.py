@@ -34,6 +34,7 @@ class Setting(StrEnum):
     LIVES = "lives"
     ALARM = "alarm"
     FILTER = "filter"
+    MONITOR = "monitor"
 
 """Lock used to guard access to the configuration."""
 __CONFIG_LOCK = Lock()
@@ -132,8 +133,10 @@ def get_usernames_and_config():
     with __CONFIG_LOCK:
         return (__CONFIG_USERNAMES.copy(), __CONFIG_CACHE.copy())
 
-def get_text_for_settings(videos: bool, lives: bool):
-    if videos and lives:
+def get_text_for_settings(videos: bool, lives: bool, monitor: bool):
+    if monitor:
+        return "monitor"
+    elif videos and lives:
         return "videos and lives"
     elif videos:
         return "videos"

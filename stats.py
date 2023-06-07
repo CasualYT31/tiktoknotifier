@@ -148,20 +148,23 @@ def summarise_stats(username: str="") -> str:
     else:
         # Summarise user's stats.
         msg += f"**__{username}'s Polling Stats__**\n"
-        successful = stats_copy[username]['success']
-        total = successful
-        msg += f"Successful: {total}\n"
-        for failure_reason, count in stats_copy[username]["failure"].items():
-            if failure_reason == ReasonForFailure.UNKNOWN_ERROR_DIV:
-                for div_str, inner_count in count:
-                    caption = div_str.title()
-                    total += inner_count
-                    msg += f"Unknown Error Div: {caption}: {inner_count}\n"
-            elif count > 0:
-                caption = failure_reason.replace("-", " ").title()
-                total += count
-                msg += f"{caption}: {count}\n"
-        msg += f"Total Failures: {total - successful}\n"
-        msg += f"Total Polls: {total}\n"
-        msg += "Success Rate: {:.2f}%".format(successful / total * 100)
+        if username not in stats_copy:
+            msg += f"None."
+        else:
+            successful = stats_copy[username]['success']
+            total = successful
+            msg += f"Successful: {total}\n"
+            for failure_reason, count in stats_copy[username]["failure"].items():
+                if failure_reason == ReasonForFailure.UNKNOWN_ERROR_DIV:
+                    for div_str, inner_count in count:
+                        caption = div_str.title()
+                        total += inner_count
+                        msg += f"Unknown Error Div: {caption}: {inner_count}\n"
+                elif count > 0:
+                    caption = failure_reason.replace("-", " ").title()
+                    total += count
+                    msg += f"{caption}: {count}\n"
+            msg += f"Total Failures: {total - successful}\n"
+            msg += f"Total Polls: {total}\n"
+            msg += "Success Rate: {:.2f}%".format(successful / total * 100)
     return msg
