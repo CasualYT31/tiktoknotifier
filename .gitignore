@@ -1,12 +1,8 @@
 # TikTokNotifier-specific ignores
-token.txt
-cookie.txt
-config.json
-state.json
-owner.txt
-log_channel.txt
+*.txt
+*.json
 *.html
-alarm.ogg
+*.ogg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

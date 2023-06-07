@@ -47,11 +47,10 @@ __CONFIG_FILE_PATH = "./config.json"
 """Cache of the configuration."""
 global __CONFIG_CACHE
 try:
-    with open(__CONFIG_FILE_PATH, 'r') as f:
+    with open(__CONFIG_FILE_PATH, mode='r', encoding='utf-8') as f:
         __CONFIG_CACHE = json.loads(f.read())
-except FileNotFoundError:
-    __CONFIG_CACHE = {}
 except Exception as e:
+    __CONFIG_CACHE = {}
     print(f"COULDN'T READ FROM CONFIG FILE: {e}")
 
 """List of the configured usernames. Needs to be a list because I want a defined
@@ -62,7 +61,7 @@ def __write_config():
     global __CONFIG_CACHE
     with __CONFIG_FILE_LOCK:
         try:
-            with open(__CONFIG_FILE_PATH, 'w') as f:
+            with open(__CONFIG_FILE_PATH, mode='w', encoding='utf-8') as f:
                 f.write(json.dumps(__CONFIG_CACHE))
         except Exception as e:
             print(f"COULDN'T WRITE TO CONFIG FILE: {e}")

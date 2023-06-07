@@ -35,6 +35,8 @@ from requests_html import AsyncHTMLSession
 from numpy import array_split
 
 from config import get_usernames_and_config, Setting
+from stats import ReasonForFailure, record_successful_poll, record_failed_poll, \
+    remove_user
 
 class PollingCog(commands.Cog):
     def __init__(self, client):
@@ -54,9 +56,8 @@ class PollingCog(commands.Cog):
         try:
             with open(self.STATE_FILE_PATH, mode='r', encoding='utf-8') as f:
                 self.state = json.loads(f.read())
-        except FileNotFoundError:
-            self.state = {}
         except Exception as e:
+            self.state = {}
             print(f"COULDN'T LOAD STATE: {e}")
 
         # Load cookies: https://stackoverflow.com/a/49865026.
@@ -105,7 +106,7 @@ class PollingCog(commands.Cog):
     @tasks.loop(seconds=60.0)
     async def clean_up_user_state(self):
         """If the configurations for a user have been removed, then its
-        state should also be removed."""
+        state and stats should also be removed."""
         
         # I am not going to bother with the extremely unlikely case of a user's
         # configuration being removed as it is being polled AND this task is
@@ -114,6 +115,7 @@ class PollingCog(commands.Cog):
         for username in list(self.state.keys()):
             if username not in usernames:
                 del self.state[username]
+                remove_user(username)
         await self.write_state()
     
     @tasks.loop(seconds=3.0)
@@ -147,6 +149,7 @@ class PollingCog(commands.Cog):
         if "Access Denied" in response.html.html:
             await self.error(f"Access denied when polling for @{username}!",
                              group_number, response.html)
+            record_failed_poll(username, ReasonForFailure.ACCESS_DENIED)
             return
         
         # In a similar vein, TikTok can have brief periods where it responds with an
@@ -154,6 +157,7 @@ class PollingCog(commands.Cog):
         # going wrong with the JavaScript. Rendering the page doesn't work, so we
         # will have to skip polls until it stops...
         if "Please wait..." in response.html.html:
+            record_failed_poll(username, ReasonForFailure.PLEASE_WAIT)
             self.print_char('!', group_number)
             return
         
@@ -164,6 +168,7 @@ class PollingCog(commands.Cog):
         div_elements = response.html.find('div')
         error_strings = self.check_for_error_div(div_elements)
         if len(error_strings) > 0:
+            self.record_error_div(username, error_strings[0])
             await self.error(f"Couldn't retrieve latest uploads for @{username}: "
                              f"{error_strings}", group_number, response.html)
             return
@@ -202,6 +207,7 @@ class PollingCog(commands.Cog):
             await self.notify_live(config, username)
         
         # Indicate via console that this poll was successful.
+        record_successful_poll(username)
         self.print_char('.', group_number)
     
     def print_char(self, char: str, group_number: int):
@@ -234,6 +240,20 @@ class PollingCog(commands.Cog):
             p_elements = error_elements[0].find('p')
             return [p.text for p in p_elements]
         return []
+
+    def record_error_div(self, username: str, primary_error_string: str):
+        estr = primary_error_string.strip().lower()
+        if "something went wrong" in estr:
+            record_failed_poll(username, ReasonForFailure.SOMETHING_WENT_WRONG)
+        elif "no content" in estr:
+            record_failed_poll(username, ReasonForFailure.NO_CONTENT)
+        elif "page not available" in estr:
+            record_failed_poll(username, ReasonForFailure.PAGE_NOT_AVAILABLE)
+        elif "private account" in estr:
+            record_failed_poll(username, ReasonForFailure.PRIVATE_ACCOUNT)
+        else:
+            record_failed_poll(username, ReasonForFailure.UNKNOWN_ERROR_DIV,
+                               primary_error_string)
     
     def find_latest_video(self, username: str, div_elements):
         # First, find the div containing all the user's videos.
@@ -241,11 +261,13 @@ class PollingCog(commands.Cog):
                       if "data-e2e" in element.attrs and \
                         element.attrs["data-e2e"] == "user-post-item-list"]
         if len(video_list) == 0:
+            record_failed_poll(username, ReasonForFailure.USER_POST_ITEM_LIST)
             return -1, "", f"Could not retrieve video list for @{username}!"
         
         # Then, retrieve the list of videos within that div.
         video_list = video_list[0].find('div')
         if len(video_list) < 2:
+            record_failed_poll(username, ReasonForFailure.USER_POST_ITEM_LIST_DIV)
             return -1, "", f"Could not retrieve videos within video list for " \
                            f"@{username}!"
         
@@ -255,11 +277,13 @@ class PollingCog(commands.Cog):
                      if 'data-e2e' in element.attrs and \
                         element.attrs['data-e2e'] == "user-post-item"]
         if len(video_div) != 1:
+            record_failed_poll(username, ReasonForFailure.USER_POST_ITEM)
             return -1, "", f"Could not find video div for @{username}! {video_div}"
         
         # Find the link to the video in the first video's div.
         video_link = video_div[0].find('a', first=True)
         if video_link == None or 'href' not in video_link.attrs:
+            record_failed_poll(username, ReasonForFailure.NO_VIDEO_LINK)
             return -1, "", f"Could not extract video link for @{username}! " \
                            f"{video_link}"
         
@@ -268,12 +292,15 @@ class PollingCog(commands.Cog):
                      if 'data-e2e' in element.attrs and \
                         element.attrs['data-e2e'] == "user-post-item-desc"]
         if len(video_desc_div) != 1:
+            record_failed_poll(username, ReasonForFailure.USER_POST_ITEM_DESC)
             return -1, "", f"Could not find video desc div for @{username}! " \
                            f"{video_desc_div}"
         
         # Find the first video's description.
+        # The title attribute should still be present even if the caption is blank.
         video_desc_link = video_desc_div[0].find('a', first=True)
         if video_desc_link == None or 'title' not in video_desc_link.attrs:
+            record_failed_poll(username, ReasonForFailure.NO_VIDEO_DESC)
             return -1, "", f"Could not extract video desc for @{username}! " \
                            f"{video_desc_link}"
         
@@ -284,6 +311,7 @@ class PollingCog(commands.Cog):
         try:
             return int(latest_video_id), latest_video_caption, ""
         except Exception as e:
+            record_failed_poll(username, ReasonForFailure.FAULTY_VIDEO_LINK)
             return -1, "", f"Could not convert video ID to int for @{username}! " \
                            f"{latest_video_id}. {e}"
     

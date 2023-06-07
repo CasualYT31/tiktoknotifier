@@ -32,6 +32,7 @@ from read_token import read_token
 from config import update_setting, Setting, delete_discord_user, delete_setting, \
     get_all_users_for_discord_user, get_user_for_discord_user, get_text_for_settings
 from poller import PollingCog
+from stats import summarise_stats, reset_stats
 
 def initialise_bot(command_prefix: str="?"):
     """Sets up and runs the bot.
@@ -79,7 +80,11 @@ def initialise_bot(command_prefix: str="?"):
                        "\"meme\", or \"Filter Challenge\". You can issue no "
                        "filters to remove the filters applied to the user. If a "
                        "user has no filters (default), all video uploads will be "
-                       "reported.")
+                       "reported.\n"
+                       "Use `?stats get [username]` to get stats on how polling is "
+                       "doing (success rate, reasons for failures for each user, "
+                       "etc.). If no username is given, all stats across each user "
+                       "will be tallied and summarised.")
 
     # Once the bot is ready, begin polling TikTok.
     @client.event
@@ -214,6 +219,30 @@ def initialise_bot(command_prefix: str="?"):
                 await ctx.send(msg)
             else:
                 await ctx.send("You are currently set to receive no notifications.")
+    
+    # Setup the `stats` command.
+    @client.command()
+    async def stats(ctx, sub_command: str, username: str=""):
+        user_id = str(ctx.author.id)
+        cmd = sub_command.lower()
+        username = username.lower()
+        if cmd == "get":
+            msg = summarise_stats(username)
+            await ctx.send(msg)
+        elif cmd == "reset":
+            if (user_id == OWNER_ID):
+                reset_stats()
+                await ctx.send("Removed all stats!")
+            else:
+                await ctx.send("Only the bot's owner is allowed to use this "
+                               "command!")
+        else:
+            await ctx.send(f"`{sub_command}` is an invalid sub-command!")
+    @stats.error
+    async def stats_error(ctx, error):
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("Please provide either the `get` or `reset` "
+                           "sub-command, e.g. `?stats get`.")
     
     # Setup the `alarm` admin command.
     @client.command()
