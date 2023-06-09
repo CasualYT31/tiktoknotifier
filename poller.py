@@ -245,9 +245,13 @@ class PollingCog(commands.Cog):
                     await self.notify_video(config, username, latest_video_id, \
                                             latest_video_caption)
         
-            # If the user went LIVE, send notification.
-            if not self.state[username]["wasLive"] and self.state[username]["isLive"]:
-                await self.notify_live(config, username)
+            # If the user went LIVE or OFFLINE, send notification.
+            if not self.state[username]["wasLive"] and \
+                self.state[username]["isLive"]:
+                await self.notify_live(config, username, True)
+            elif self.state[username]["wasLive"] and \
+                not self.state[username]["isLive"]:
+                await self.notify_live(config, username, False)
         
         # Indicate via console that this poll was successful.
         self.state[username]["previousError"] = ""
@@ -410,12 +414,13 @@ class PollingCog(commands.Cog):
                               f"{'available' if available else 'unavailable'}! "
                               f"<https://www.tiktok.com/@{username}/>")
 
-    async def notify_live(self, config: dict, username: str):
+    async def notify_live(self, config: dict, username: str, wentOnline: bool):
         for user_id, settings in config[username].items():
             if settings[Setting.LIVES]:
-                await self.DM(user_id, f"`@{username}` went LIVE! "
+                await self.DM(user_id, f"`@{username}` went "
+                              f"{'LIVE' if wentOnline else 'OFFLINE'}! "
                               f"<https://www.tiktok.com/@{username}/live>")
-            if Setting.ALARM in settings and settings[Setting.ALARM]:
+            if wentOnline and Setting.ALARM in settings and settings[Setting.ALARM]:
                 # Will only work for me, on my Windows laptop.
                 run("START /B \"C:\\Program Files\\VLC\\vlc\" alarm.ogg",
                     shell=True)
