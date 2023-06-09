@@ -23,6 +23,8 @@ SOFTWARE.
 
 """Records polling stats."""
 
+from time import time
+from datetime import datetime
 from threading import Lock
 from enum import StrEnum
 import json
@@ -56,6 +58,11 @@ global __STATS_CACHE
 def __reset_stats():
     global __STATS_CACHE
     __STATS_CACHE = {}
+    try:
+        with open("last-reset-stats-at.txt", mode='w', encoding='utf-8') as f:
+            f.write(datetime.fromtimestamp(time()).strftime('%Y-%m-%d %H:%M:%S'))
+    except Exception as e:
+        print(f"COULD NOT WRITE last-reset-stats-at.txt: {e}")
 
 def __add_user(username: str):
     if username in __STATS_CACHE: return
@@ -108,8 +115,13 @@ def record_failed_poll(username: str, reason: ReasonForFailure,
         if error_div is None:
             __STATS_CACHE[username]["failure"][reason] += 1
         else:
-            __STATS_CACHE[username]["failure"] \
-                [ReasonForFailure.UNKNOWN_ERROR_DIV][error_div] += 1
+            if error_div in __STATS_CACHE[username]["failure"] \
+                [ReasonForFailure.UNKNOWN_ERROR_DIV]:
+                __STATS_CACHE[username]["failure"] \
+                    [ReasonForFailure.UNKNOWN_ERROR_DIV][error_div] += 1
+            else:
+                __STATS_CACHE[username]["failure"] \
+                    [ReasonForFailure.UNKNOWN_ERROR_DIV][error_div] = 1
         __write_stats()
 
 def reset_stats() -> None:
@@ -135,15 +147,39 @@ def summarise_stats(username: str="") -> str:
         msg += f"Currently polling **{len(stats_copy.keys())}** user/s.\n"
         successful = sum([stats["success"] for stats in stats_copy.values()])
         msg += f"Successful: {successful}\n"
+        failure_counters = {}
+        for stats in stats_copy.values():
+            for failure_reason, count in stats["failure"].items():
+                if failure_reason == ReasonForFailure.UNKNOWN_ERROR_DIV:
+                    for div_str, inner_count in count.items():
+                        if failure_reason not in failure_counters:
+                            failure_counters[failure_reason] = {}
+                        if div_str in failure_counters:
+                            failure_counters[failure_reason][div_str] += inner_count
+                        else:
+                            failure_counters[failure_reason][div_str] = inner_count
+                elif count > 0:
+                    if failure_reason in failure_counters:
+                        failure_counters[failure_reason] += count
+                    else:
+                        failure_counters[failure_reason] = count
+        for failure_reason, count in failure_counters.items():
+            if failure_reason == ReasonForFailure.UNKNOWN_ERROR_DIV:
+                for div_str, inner_count in count.items():
+                    caption = div_str.title()
+                    msg += f"Unknown Error Div: {caption}: {inner_count}\n"
+            elif count > 0:
+                caption = failure_reason.replace("-", " ").title()
+                msg += f"{caption}: {count}\n"
         failures = sum([sum([fail_stats for reason, fail_stats in
                          stats["failure"].items() if
                          reason != ReasonForFailure.UNKNOWN_ERROR_DIV] +
                         [unknown_fail_stats for unknown_fail_stats in
                     stats["failure"][ReasonForFailure.UNKNOWN_ERROR_DIV].values()])
                     for stats in stats_copy.values()])
-        msg += f"Failures: {failures}\n"
+        msg += f"Total Failures: {failures}\n"
         msg += f"Total Polls: {successful + failures}\n"
-        msg += "Success Rate: {:.2f}%".format(
+        msg += "Success Rate: {:.2f}%\n".format(
             successful / (successful + failures) * 100.0)
     else:
         # Summarise user's stats.
@@ -156,7 +192,7 @@ def summarise_stats(username: str="") -> str:
             msg += f"Successful: {total}\n"
             for failure_reason, count in stats_copy[username]["failure"].items():
                 if failure_reason == ReasonForFailure.UNKNOWN_ERROR_DIV:
-                    for div_str, inner_count in count:
+                    for div_str, inner_count in count.items():
                         caption = div_str.title()
                         total += inner_count
                         msg += f"Unknown Error Div: {caption}: {inner_count}\n"
@@ -166,5 +202,12 @@ def summarise_stats(username: str="") -> str:
                     msg += f"{caption}: {count}\n"
             msg += f"Total Failures: {total - successful}\n"
             msg += f"Total Polls: {total}\n"
-            msg += "Success Rate: {:.2f}%".format(successful / total * 100)
-    return msg
+            msg += "Success Rate: {:.2f}%\n".format(successful / total * 100)
+    msg += "Last Reset At: "
+    try:
+        with open("last-reset-stats-at.txt", mode='r', encoding='utf-8') as f:
+            msg += f.read()
+    except Exception as e:
+        print(f"COULD NOT READ last-reset-stats-at.txt: {e}")
+        msg += "<unknown>"
+    return msg 

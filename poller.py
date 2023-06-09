@@ -23,6 +23,7 @@ SOFTWARE.
 
 """Polling cog to be added to the Discord bot."""
 
+import traceback
 import json
 from subprocess import run
 from threading import Lock
@@ -62,7 +63,16 @@ class PollingCog(commands.Cog):
 
         # Load cookies: https://stackoverflow.com/a/49865026.
         self.raw_cookies = ""
+        self.cookies = None
         self.load_cookies()
+
+        # Load headers.
+        self.headers = None
+        try:
+            with open("headers.json", mode='r', encoding='utf-8') as f:
+                self.headers = json.loads(f.read())
+        except Exception as e:
+            print(f"Could not read headers! {e}")
 
         # Start polling.
         self.GROUP_COUNT = 2
@@ -95,7 +105,7 @@ class PollingCog(commands.Cog):
                 self.cookies.update(SimpleCookie(raw_cookies))
                 return True
         except Exception as e:
-            print(f"Could not read cookie! {e}")
+            print(f"Could not read cookies! {e}")
         return False
     
     @tasks.loop(seconds=5.0)
@@ -120,11 +130,19 @@ class PollingCog(commands.Cog):
     
     @tasks.loop(seconds=3.0)
     async def poller_group1(self):
-        await self.poll(0)
+        try:
+            await self.poll(0)
+        except Exception as e:
+            print(f"EXCEPTION IN GROUP 1: {e}")
+            traceback.print_exc()
     
     @tasks.loop(seconds=3.0)
     async def poller_group2(self):
-        await self.poll(1)
+        try:
+            await self.poll(1)
+        except Exception as e:
+            print(f"EXCEPTION IN GROUP 2: {e}")
+            traceback.print_exc()
 
     async def poll(self, group_number: int):
         assert self.GROUP_COUNT > 0
@@ -148,7 +166,8 @@ class PollingCog(commands.Cog):
         # Is TikTok beginning to deny access? In which case, ignore this request.
         if "Access Denied" in response.html.html:
             await self.error(f"Access denied when polling for @{username}!",
-                             group_number, response.html)
+                             ReasonForFailure.ACCESS_DENIED, username, group_number,
+                             response.html)
             record_failed_poll(username, ReasonForFailure.ACCESS_DENIED)
             return
         
@@ -177,9 +196,10 @@ class PollingCog(commands.Cog):
                 "couldn't find this account" in error_strings[0].strip().lower():
                 is_available = False
             else:
-                self.record_error_div(username, error_strings[0])
-                await self.error(f"Couldn't retrieve latest uploads for @{username}: "
-                                f"{error_strings}", group_number, response.html)
+                reason = self.record_error_div(username, error_strings[0])
+                await self.error(f"Couldn't retrieve latest uploads for "
+                                 f"@{username}: {error_strings}", reason, username,
+                                 group_number, response.html)
                 return
         
         # Find the latest video's ID and caption. If they couldn't be found, ignore
@@ -187,10 +207,11 @@ class PollingCog(commands.Cog):
         if monitor_account:
             latest_video_id, latest_video_caption, error_string = -1, "", ""
         else:
-            latest_video_id, latest_video_caption, error_string = \
+            latest_video_id, latest_video_caption, error_string, reason = \
                 self.find_latest_video(username, div_elements)
             if len(error_string) > 0:
-                await self.error(error_string, group_number, response.html)
+                await self.error(error_string, reason, username, group_number,
+                                 response.html)
                 return
         
         # Is this user now LIVE?
@@ -229,6 +250,8 @@ class PollingCog(commands.Cog):
                 await self.notify_live(config, username)
         
         # Indicate via console that this poll was successful.
+        self.state[username]["previousError"] = ""
+        self.state[username]["loggedError"] = False
         record_successful_poll(username)
         self.print_char('.', group_number)
     
@@ -247,7 +270,8 @@ class PollingCog(commands.Cog):
             reset_counter = True
         username = usernames[self.poller_username_counters[group_number]]
         response = await self.session[group_number].get(
-            f"https://www.tiktok.com/@{username}", cookies=self.cookies)
+            f"https://www.tiktok.com/@{username}", cookies=self.cookies,
+            headers=self.headers)
         return username, response, reset_counter
     
     def check_for_error_div(self, div_elements):
@@ -267,15 +291,20 @@ class PollingCog(commands.Cog):
         estr = primary_error_string.strip().lower()
         if "something went wrong" in estr:
             record_failed_poll(username, ReasonForFailure.SOMETHING_WENT_WRONG)
+            return ReasonForFailure.SOMETHING_WENT_WRONG
         elif "no content" in estr:
             record_failed_poll(username, ReasonForFailure.NO_CONTENT)
+            return ReasonForFailure.NO_CONTENT
         elif "page not available" in estr:
             record_failed_poll(username, ReasonForFailure.PAGE_NOT_AVAILABLE)
-        elif "private account" in estr:
+            return ReasonForFailure.PAGE_NOT_AVAILABLE
+        elif "private" in estr:
             record_failed_poll(username, ReasonForFailure.PRIVATE_ACCOUNT)
+            return ReasonForFailure.PRIVATE_ACCOUNT
         else:
             record_failed_poll(username, ReasonForFailure.UNKNOWN_ERROR_DIV,
                                primary_error_string)
+            return ReasonForFailure.UNKNOWN_ERROR_DIV
     
     def find_latest_video(self, username: str, div_elements):
         # First, find the div containing all the user's videos.
@@ -284,14 +313,15 @@ class PollingCog(commands.Cog):
                         element.attrs["data-e2e"] == "user-post-item-list"]
         if len(video_list) == 0:
             record_failed_poll(username, ReasonForFailure.USER_POST_ITEM_LIST)
-            return -1, "", f"Could not retrieve video list for @{username}!"
+            return -1, "", f"Could not retrieve video list for @{username}!", \
+                ReasonForFailure.USER_POST_ITEM_LIST
         
         # Then, retrieve the list of videos within that div.
         video_list = video_list[0].find('div')
         if len(video_list) < 2:
             record_failed_poll(username, ReasonForFailure.USER_POST_ITEM_LIST_DIV)
             return -1, "", f"Could not retrieve videos within video list for " \
-                           f"@{username}!"
+                           f"@{username}!", ReasonForFailure.USER_POST_ITEM_LIST_DIV
         
         # Find the first video in that list.
         first_video = video_list[1]
@@ -300,14 +330,15 @@ class PollingCog(commands.Cog):
                         element.attrs['data-e2e'] == "user-post-item"]
         if len(video_div) != 1:
             record_failed_poll(username, ReasonForFailure.USER_POST_ITEM)
-            return -1, "", f"Could not find video div for @{username}! {video_div}"
+            return -1, "", f"Could not find video div for @{username}! " \
+                           f"{video_div}", ReasonForFailure.USER_POST_ITEM
         
         # Find the link to the video in the first video's div.
         video_link = video_div[0].find('a', first=True)
         if video_link == None or 'href' not in video_link.attrs:
             record_failed_poll(username, ReasonForFailure.NO_VIDEO_LINK)
             return -1, "", f"Could not extract video link for @{username}! " \
-                           f"{video_link}"
+                           f"{video_link}", ReasonForFailure.NO_VIDEO_LINK
         
         # Find the first video's description div.
         video_desc_div = [element for element in first_video.find('div') \
@@ -316,7 +347,7 @@ class PollingCog(commands.Cog):
         if len(video_desc_div) != 1:
             record_failed_poll(username, ReasonForFailure.USER_POST_ITEM_DESC)
             return -1, "", f"Could not find video desc div for @{username}! " \
-                           f"{video_desc_div}"
+                           f"{video_desc_div}", ReasonForFailure.USER_POST_ITEM_DESC
         
         # Find the first video's description.
         # The title attribute should still be present even if the caption is blank.
@@ -324,18 +355,19 @@ class PollingCog(commands.Cog):
         if video_desc_link == None or 'title' not in video_desc_link.attrs:
             record_failed_poll(username, ReasonForFailure.NO_VIDEO_DESC)
             return -1, "", f"Could not extract video desc for @{username}! " \
-                           f"{video_desc_link}"
+                           f"{video_desc_link}", ReasonForFailure.NO_VIDEO_DESC
         
         # Extract and return the information.
         latest_video_id = \
             video_link.attrs['href'][video_link.attrs['href'].rfind('/')+1:]
         latest_video_caption = video_desc_link.attrs['title']
         try:
-            return int(latest_video_id), latest_video_caption, ""
+            return int(latest_video_id), latest_video_caption, "", None
         except Exception as e:
             record_failed_poll(username, ReasonForFailure.FAULTY_VIDEO_LINK)
             return -1, "", f"Could not convert video ID to int for @{username}! " \
-                           f"{latest_video_id}. {e}"
+                           f"{latest_video_id}. {e}", \
+                            ReasonForFailure.FAULTY_VIDEO_LINK
     
     async def update_user_state(self, username: str, latest_video_id: int,
                                 is_live: bool, is_available: bool):
@@ -345,7 +377,9 @@ class PollingCog(commands.Cog):
                 "isLive": False,
                 "latestVideoID": -1,
                 "wasAvailable": False,
-                "isAvailable": False
+                "isAvailable": False,
+                "previousError": "",
+                "loggedError": False
             }
         self.state[username]["wasLive"] = self.state[username]["isLive"]
         self.state[username]["isLive"] = is_live
@@ -413,22 +447,50 @@ class PollingCog(commands.Cog):
         user = await self.client.fetch_user(user_id)
         await user.send(msg)
     
-    async def error(self, msg: str, group_number: int=None, html_response=None):
+    async def error(self, msg: str, error_type: ReasonForFailure=None, username: str=None,
+                    group_number: int=None, html_response=None):
         if group_number is not None:
             self.print_char('!', group_number)
-        try:
-            channel = await self.client.fetch_channel(self.LOG_CHANNEL)
-            # If a HTML response is provided, write it to a file and attach it.
-            attachment = None
-            if html_response is not None:
-                try:
-                    filepath = f"error_{group_number}.html"
-                    with open(filepath, mode='w', encoding='utf-8') as f:
-                        f.write(html_response.html)
-                    attachment = File(filepath)
-                except: # Couldn't create attachment.
-                    self.print_char('?', group_number)
-            await channel.send(content=msg, file=attachment)
-        except Exception as e:
-            # No valid log channel ID, just print it instead.
-            print(msg)
+        if error_type is not None and username is not None:
+            if "previousError" in self.state[username] and \
+                self.state[username]["previousError"] == error_type:
+                if "loggedError" not in self.state[username] or \
+                    ("loggedError" in self.state[username] and \
+                    not self.state[username]["loggedError"]):
+                    self.state[username]["loggedError"] = True
+                    try:
+                        channel = await self.client.fetch_channel(self.LOG_CHANNEL)
+                        # If a HTML response is provided, write it to a file and attach it.
+                        attachment = None
+                        if html_response is not None:
+                            try:
+                                filepath = f"error_{group_number}.html"
+                                with open(filepath, mode='w', encoding='utf-8') as f:
+                                    f.write(html_response.html)
+                                attachment = File(filepath)
+                            except: # Couldn't create attachment.
+                                self.print_char('?', group_number)
+                        await channel.send(content=msg, file=attachment)
+                    except Exception as e:
+                        # No valid log channel ID, just print it instead.
+                        print(msg)
+            else:
+                self.state[username]["previousError"] = error_type
+                self.state[username]["loggedError"] = False
+        else:
+            try:
+                channel = await self.client.fetch_channel(self.LOG_CHANNEL)
+                # If a HTML response is provided, write it to a file and attach it.
+                attachment = None
+                if html_response is not None:
+                    try:
+                        filepath = f"error_{group_number}.html"
+                        with open(filepath, mode='w', encoding='utf-8') as f:
+                            f.write(html_response.html)
+                        attachment = File(filepath)
+                    except: # Couldn't create attachment.
+                        self.print_char('?', group_number)
+                await channel.send(content=msg, file=attachment)
+            except Exception as e:
+                # No valid log channel ID, just print it instead.
+                print(msg)
