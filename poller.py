@@ -35,9 +35,13 @@ from discord.ext import tasks, commands
 from requests_html import AsyncHTMLSession
 from numpy import array_split
 
-from config import get_usernames_and_config, Setting
+from config import get_usernames_and_config, get_username_group_and_config, Setting
 from stats import ReasonForFailure, record_successful_poll, record_failed_poll, \
     remove_user
+
+global GROUP_COUNT
+GROUP_COUNT = 2
+assert GROUP_COUNT > 0
 
 class PollingCog(commands.Cog):
     def __init__(self, client):
@@ -75,14 +79,13 @@ class PollingCog(commands.Cog):
             print(f"Could not read headers! {e}")
 
         # Start polling.
-        self.GROUP_COUNT = 2
         self.GROUP_COLOURS = [
             "\x1B[1;33m", # Yellow.
             "\x1B[1;36m", # Cyan.
         ]
-        assert len(self.GROUP_COLOURS) == self.GROUP_COUNT
-        self.poller_username_counters = [0] * self.GROUP_COUNT
-        self.session = [AsyncHTMLSession()] * self.GROUP_COUNT
+        assert len(self.GROUP_COLOURS) == GROUP_COUNT
+        self.poller_username_counters = [0] * GROUP_COUNT
+        self.session = [AsyncHTMLSession()] * GROUP_COUNT
         self.poller_group1.start()
         self.poller_group2.start()
         self.clean_up_user_state.start()
@@ -147,14 +150,11 @@ class PollingCog(commands.Cog):
                              filename_override="traceback_1.txt")
 
     async def poll(self, group_number: int):
-        assert self.GROUP_COUNT > 0
-        assert group_number >= 0 and group_number < self.GROUP_COUNT
+        assert group_number >= 0 and group_number < GROUP_COUNT
 
-        # Get the configuration and split up the groups to find the correct one.
+        # Get the configuration and username group this poller is responsible for.
         # If there aren't any usernames to poll, wait until there are.
-        usernames, config = get_usernames_and_config()
-        username_groups = array_split(usernames, self.GROUP_COUNT)
-        usernames = username_groups[group_number].tolist()
+        usernames, config = get_username_group_and_config(group_number, GROUP_COUNT)
         if len(usernames) == 0:
             return
         

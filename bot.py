@@ -30,8 +30,9 @@ from discord.ext import commands
 # TikTokNotifier Imports.
 from read_token import read_token
 from config import update_setting, Setting, delete_discord_user, delete_setting, \
-    get_all_users_for_discord_user, get_user_for_discord_user, get_text_for_settings
-from poller import PollingCog
+    get_all_users_for_discord_user, get_user_for_discord_user, \
+    get_text_for_settings, find_group_of_username
+from poller import PollingCog, GROUP_COUNT
 from stats import summarise_stats, reset_stats
 
 def initialise_bot(command_prefix: str="?"):
@@ -192,6 +193,11 @@ def initialise_bot(command_prefix: str="?"):
         if username != "":
             settings = get_user_for_discord_user(username, user_id)
             if settings:
+                group_number, index, username_count = \
+                    find_group_of_username(username, GROUP_COUNT)
+                group_msg = "no group" if group_number is None else \
+                    f"group {group_number + 1} of {GROUP_COUNT}, " \
+                    f"user {index + 1} of {username_count}"
                 what_for = get_text_for_settings(
                     videos=settings[Setting.VIDEOS], lives=settings[Setting.LIVES],
                     monitor=Setting.MONITOR in settings)
@@ -205,7 +211,8 @@ def initialise_bot(command_prefix: str="?"):
                         alarm_setting = " **You will receive an alarm when this " \
                             "account goes LIVE!**"
                 await ctx.send("You are currently set to receive notifications for "
-                            f"`@{username}`'s {what_for}.{filters}{alarm_setting}")
+                            f"`@{username}`'s __{what_for}__. They are in "
+                            f"{group_msg}.{filters}{alarm_setting}")
             else:
                 await ctx.send("You are currently set to receive **no** "
                                f"notifications for `@{username}`.")
@@ -216,6 +223,11 @@ def initialise_bot(command_prefix: str="?"):
                 # operating on a large scale.
                 msg = ""
                 for username, settings in usernames.items():
+                    group_number, index, username_count = \
+                        find_group_of_username(username, GROUP_COUNT)
+                    group_msg = "---" if group_number is None else \
+                        f"Group {group_number + 1} of {GROUP_COUNT}, " \
+                        f"User {index + 1} of {username_count}"
                     what_for = get_text_for_settings(
                         videos=settings[Setting.VIDEOS],
                         lives=settings[Setting.LIVES],
@@ -229,7 +241,8 @@ def initialise_bot(command_prefix: str="?"):
                         if Setting.ALARM in settings and settings[Setting.ALARM]:
                             alarm_setting = " **You will receive an alarm when " \
                                 "this account goes LIVE!**"
-                    msg += f"`@{username}`: {what_for}.{filters}{alarm_setting}\n"
+                    msg += f"`@{username}` ({group_msg}): __{what_for}__." \
+                        f"{filters}{alarm_setting}\n"
                 await ctx.send(msg)
             else:
                 await ctx.send("You are currently set to receive no notifications.")

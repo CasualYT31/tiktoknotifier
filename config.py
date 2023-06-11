@@ -27,6 +27,8 @@ from threading import Lock
 from enum import StrEnum
 import json
 
+from numpy import array_split
+
 class Setting(StrEnum):
     """The keys used for the settings stored in the configuration."""
 
@@ -133,9 +135,26 @@ def get_usernames_and_config():
     with __CONFIG_LOCK:
         return (__CONFIG_USERNAMES.copy(), __CONFIG_CACHE.copy())
 
+def get_username_group_and_config(group_number: int, group_count: int):
+    assert group_count >= 1
+    assert group_number >= 0 and group_number < group_count
+    global __CONFIG_CACHE
+    global __CONFIG_USERNAMES
+    with __CONFIG_LOCK:
+        username_groups = array_split(__CONFIG_USERNAMES.copy(), group_count)
+        return (username_groups[group_number].tolist(), __CONFIG_CACHE.copy())
+
+def find_group_of_username(username: str, group_count: int) -> tuple:
+    assert group_count >= 1
+    for group_number in range(group_count):
+        username_group, _ = get_username_group_and_config(group_number, group_count)
+        if username in username_group:
+            return group_number, username_group.index(username), len(username_group)
+    return None, None, None
+
 def get_text_for_settings(videos: bool, lives: bool, monitor: bool):
     if monitor:
-        return "monitor"
+        return "account status"
     elif videos and lives:
         return "videos and lives"
     elif videos:
