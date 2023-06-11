@@ -55,12 +55,15 @@ __STATS_FILE_PATH = "./stats.json"
 
 global __STATS_CACHE
 
+def time_as_str(time_to_convert=time()) -> str:
+    return datetime.fromtimestamp(time_to_convert).strftime('%Y-%m-%d %H:%M:%S')
+
 def __reset_stats():
     global __STATS_CACHE
     __STATS_CACHE = {}
     try:
         with open("last-reset-stats-at.txt", mode='w', encoding='utf-8') as f:
-            f.write(datetime.fromtimestamp(time()).strftime('%Y-%m-%d %H:%M:%S'))
+            f.write(time_as_str())
     except Exception as e:
         print(f"COULD NOT WRITE last-reset-stats-at.txt: {e}")
 
@@ -85,7 +88,9 @@ def __add_user(username: str):
             ReasonForFailure.USER_POST_ITEM_DESC: 0,
             ReasonForFailure.NO_VIDEO_DESC: 0,
             ReasonForFailure.FAULTY_VIDEO_LINK: 0,
-        }
+        },
+        "last-poll": "N/A",
+        "last-poll-at": "N/A"
     }
 
 try:
@@ -106,6 +111,8 @@ def record_successful_poll(username: str):
     with __STATS_LOCK:
         __add_user(username)
         __STATS_CACHE[username]["success"] += 1
+        __STATS_CACHE[username]["last-poll"] = "Success"
+        __STATS_CACHE[username]["last-poll-at"] = time_as_str()
         __write_stats()
 
 def record_failed_poll(username: str, reason: ReasonForFailure,
@@ -114,6 +121,7 @@ def record_failed_poll(username: str, reason: ReasonForFailure,
         __add_user(username)
         if error_div is None:
             __STATS_CACHE[username]["failure"][reason] += 1
+            __STATS_CACHE[username]["last-poll"] = reason.replace('-', ' ').title()
         else:
             if error_div in __STATS_CACHE[username]["failure"] \
                 [ReasonForFailure.UNKNOWN_ERROR_DIV]:
@@ -122,6 +130,8 @@ def record_failed_poll(username: str, reason: ReasonForFailure,
             else:
                 __STATS_CACHE[username]["failure"] \
                     [ReasonForFailure.UNKNOWN_ERROR_DIV][error_div] = 1
+            __STATS_CACHE[username]["last-poll"] = error_div
+        __STATS_CACHE[username]["last-poll-at"] = time_as_str()
         __write_stats()
 
 def reset_stats() -> None:
@@ -136,7 +146,7 @@ def remove_user(username: str):
             __write_stats()
 
 def summarise_stats(username: str="") -> str:
-    # Make copy so as not to lock up the rest of the program.
+    # Make copy so as not to lock up the rest of the bot.
     stats_copy = None
     with __STATS_LOCK:
         stats_copy = __STATS_CACHE.copy()
@@ -203,6 +213,12 @@ def summarise_stats(username: str="") -> str:
             msg += f"Total Failures: {total - successful}\n"
             msg += f"Total Polls: {total}\n"
             msg += "Success Rate: {:.2f}%\n".format(successful / total * 100)
+            if "last-poll" not in stats_copy[username]:
+                stats_copy[username]['last-poll'] = "Unknown"
+            msg += f"Last Poll: {stats_copy[username]['last-poll']}\n"
+            if "last-poll-at" not in stats_copy[username]:
+                stats_copy[username]['last-poll-at'] = "Unknown"
+            msg += f"Last Polled At: {stats_copy[username]['last-poll-at']}\n"
     msg += "Last Reset At: "
     try:
         with open("last-reset-stats-at.txt", mode='r', encoding='utf-8') as f:

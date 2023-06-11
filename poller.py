@@ -133,16 +133,18 @@ class PollingCog(commands.Cog):
         try:
             await self.poll(0)
         except Exception as e:
-            print(f"EXCEPTION IN GROUP 1: {e}")
-            traceback.print_exc()
+            await self.error(f"EXCEPTION IN GROUP 1: {e}",
+                             attach_this=traceback.format_exc(),
+                             filename_override="traceback_0.txt")
     
     @tasks.loop(seconds=3.0)
     async def poller_group2(self):
         try:
             await self.poll(1)
         except Exception as e:
-            print(f"EXCEPTION IN GROUP 2: {e}")
-            traceback.print_exc()
+            await self.error(f"EXCEPTION IN GROUP 2: {e}",
+                             attach_this=traceback.format_exc(),
+                             filename_override="traceback_1.txt")
 
     async def poll(self, group_number: int):
         assert self.GROUP_COUNT > 0
@@ -167,7 +169,7 @@ class PollingCog(commands.Cog):
         if "Access Denied" in response.html.html:
             await self.error(f"Access denied when polling for @{username}!",
                              ReasonForFailure.ACCESS_DENIED, username, group_number,
-                             response.html)
+                             response.html.html)
             record_failed_poll(username, ReasonForFailure.ACCESS_DENIED)
             return
         
@@ -199,19 +201,23 @@ class PollingCog(commands.Cog):
                 reason = self.record_error_div(username, error_strings[0])
                 await self.error(f"Couldn't retrieve latest uploads for "
                                  f"@{username}: {error_strings}", reason, username,
-                                 group_number, response.html)
+                                 group_number, response.html.html)
                 return
         
         # Find the latest video's ID and caption. If they couldn't be found, ignore
         # this user.
-        if monitor_account:
-            latest_video_id, latest_video_caption, error_string = -1, "", ""
-        else:
+        # There can be cases where a different error div besides "couldn't find
+        # account" is returned for an unavailable account that we are monitoring,
+        # which case it is a failed poll and we need to catch it here. Otherwise,
+        # we aren't interested in these values when monitoring an account.
+        latest_video_id, latest_video_caption, error_string, reason = \
+            -1, "", "", ""
+        if not monitor_account or is_available:
             latest_video_id, latest_video_caption, error_string, reason = \
                 self.find_latest_video(username, div_elements)
             if len(error_string) > 0:
                 await self.error(error_string, reason, username, group_number,
-                                 response.html)
+                                    response.html.html)
                 return
         
         # Is this user now LIVE?
@@ -453,7 +459,8 @@ class PollingCog(commands.Cog):
         await user.send(msg)
     
     async def error(self, msg: str, error_type: ReasonForFailure=None, username: str=None,
-                    group_number: int=None, html_response=None):
+                    group_number: int=None, attach_this: str=None,
+                    filename_override: str=None):
         if group_number is not None:
             self.print_char('!', group_number)
         if error_type is not None and username is not None:
@@ -467,11 +474,12 @@ class PollingCog(commands.Cog):
                         channel = await self.client.fetch_channel(self.LOG_CHANNEL)
                         # If a HTML response is provided, write it to a file and attach it.
                         attachment = None
-                        if html_response is not None:
+                        if attach_this is not None:
                             try:
-                                filepath = f"error_{group_number}.html"
+                                filepath = f"error_{group_number}.html" if \
+                                    filename_override is None else filename_override
                                 with open(filepath, mode='w', encoding='utf-8') as f:
-                                    f.write(html_response.html)
+                                    f.write(attach_this)
                                 attachment = File(filepath)
                             except: # Couldn't create attachment.
                                 self.print_char('?', group_number)
@@ -487,11 +495,12 @@ class PollingCog(commands.Cog):
                 channel = await self.client.fetch_channel(self.LOG_CHANNEL)
                 # If a HTML response is provided, write it to a file and attach it.
                 attachment = None
-                if html_response is not None:
+                if attach_this is not None:
                     try:
-                        filepath = f"error_{group_number}.html"
+                        filepath = f"error_{group_number}.html" if \
+                            filename_override is None else filename_override
                         with open(filepath, mode='w', encoding='utf-8') as f:
-                            f.write(html_response.html)
+                            f.write(attach_this)
                         attachment = File(filepath)
                     except: # Couldn't create attachment.
                         self.print_char('?', group_number)
