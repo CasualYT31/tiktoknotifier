@@ -55,7 +55,8 @@ __STATS_FILE_PATH = "./stats.json"
 
 global __STATS_CACHE
 
-def time_as_str(time_to_convert=time()) -> str:
+def time_as_str(time_to_convert=None) -> str:
+    if time_to_convert is None: time_to_convert = time()
     return datetime.fromtimestamp(time_to_convert).strftime('%Y-%m-%d %H:%M:%S')
 
 def __reset_stats():
@@ -66,6 +67,37 @@ def __reset_stats():
             f.write(time_as_str())
     except Exception as e:
         print(f"COULD NOT WRITE last-reset-stats-at.txt: {e}")
+    with __STATS_LATEST_POLL_LOCK:
+        try:
+            with open("latest-poll-result.txt", mode='w', encoding='utf-8') as f:
+                pass
+        except Exception as e:
+            print(f"COULDN'T CLEAR latest-poll-result.txt: {e}")
+
+global __STATS_LATEST_POLL_LOCK
+__STATS_LATEST_POLL_LOCK = Lock()
+
+def __write_latest_poll(username: str, latest_poll: str):
+    """You must have previously acquired the __STATS_LOCK!"""
+
+    __STATS_CACHE[username]["last-poll"] = latest_poll
+    last_poll_at = time_as_str()
+    __STATS_CACHE[username]["last-poll-at"] = last_poll_at
+    with __STATS_LATEST_POLL_LOCK:
+        try:
+            with open("latest-poll-result.txt", mode='w', encoding='utf-8') as f:
+                f.write(f"`@{username}`: {latest_poll}, at {last_poll_at}")
+        except Exception as e:
+            print(f"COULDN'T UPDATE latest-poll-result.txt WITH {latest_poll}: {e}")
+
+def __read_latest_poll() -> str:
+    with __STATS_LATEST_POLL_LOCK:
+        try:
+            with open("latest-poll-result.txt", mode='r', encoding='utf-8') as f:
+                return f.read().strip()
+        except Exception as e:
+            print(f"COULDN'T READ latest-poll-result.txt WITH: {e}")
+            return "<error reading latest-poll-result.txt>"
 
 def __add_user(username: str):
     if username in __STATS_CACHE: return
@@ -111,8 +143,7 @@ def record_successful_poll(username: str):
     with __STATS_LOCK:
         __add_user(username)
         __STATS_CACHE[username]["success"] += 1
-        __STATS_CACHE[username]["last-poll"] = "Success"
-        __STATS_CACHE[username]["last-poll-at"] = time_as_str()
+        __write_latest_poll(username, "Success")
         __write_stats()
 
 def record_failed_poll(username: str, reason: ReasonForFailure,
@@ -121,7 +152,7 @@ def record_failed_poll(username: str, reason: ReasonForFailure,
         __add_user(username)
         if error_div is None:
             __STATS_CACHE[username]["failure"][reason] += 1
-            __STATS_CACHE[username]["last-poll"] = reason.replace('-', ' ').title()
+            latest_poll = reason.replace('-', ' ').title()
         else:
             if error_div in __STATS_CACHE[username]["failure"] \
                 [ReasonForFailure.UNKNOWN_ERROR_DIV]:
@@ -130,8 +161,8 @@ def record_failed_poll(username: str, reason: ReasonForFailure,
             else:
                 __STATS_CACHE[username]["failure"] \
                     [ReasonForFailure.UNKNOWN_ERROR_DIV][error_div] = 1
-            __STATS_CACHE[username]["last-poll"] = error_div
-        __STATS_CACHE[username]["last-poll-at"] = time_as_str()
+            latest_poll = error_div
+        __write_latest_poll(username, latest_poll)
         __write_stats()
 
 def reset_stats() -> None:
@@ -219,6 +250,7 @@ def summarise_stats(username: str="") -> str:
             if "last-poll-at" not in stats_copy[username]:
                 stats_copy[username]['last-poll-at'] = "Unknown"
             msg += f"Last Polled At: {stats_copy[username]['last-poll-at']}\n"
+    msg += "**__Generic Polling Stats__**\n"
     msg += "Last Reset At: "
     try:
         with open("last-reset-stats-at.txt", mode='r', encoding='utf-8') as f:
@@ -226,4 +258,5 @@ def summarise_stats(username: str="") -> str:
     except Exception as e:
         print(f"COULD NOT READ last-reset-stats-at.txt: {e}")
         msg += "<unknown>"
+    msg += f"\nLatest Poll: {__read_latest_poll()}"
     return msg 
