@@ -32,6 +32,7 @@ import json
 class ReasonForFailure(StrEnum):
     """Reasons for a failed poll."""
 
+    CONNECTION_BROKEN = "connection-broken"
     ACCESS_DENIED = "access-denied"
     PLEASE_WAIT = "please-wait"
     SOMETHING_WENT_WRONG = "something-went-wrong"
@@ -104,6 +105,7 @@ def __add_user(username: str):
     __STATS_CACHE[username] = {
         "success": 0,
         "failure": {
+            ReasonForFailure.CONNECTION_BROKEN: 0,
             ReasonForFailure.ACCESS_DENIED: 0,
             ReasonForFailure.PLEASE_WAIT: 0,
             ReasonForFailure.SOMETHING_WENT_WRONG: 0,
@@ -151,7 +153,10 @@ def record_failed_poll(username: str, reason: ReasonForFailure,
     with __STATS_LOCK:
         __add_user(username)
         if error_div is None:
-            __STATS_CACHE[username]["failure"][reason] += 1
+            if reason in __STATS_CACHE[username]["failure"]:
+                __STATS_CACHE[username]["failure"][reason] += 1
+            else:
+                __STATS_CACHE[username]["failure"][reason] = 1
             latest_poll = reason.replace('-', ' ').title()
         else:
             if error_div in __STATS_CACHE[username]["failure"] \

@@ -33,7 +33,6 @@ from requests.cookies import RequestsCookieJar
 from discord import File
 from discord.ext import tasks, commands
 from requests_html import AsyncHTMLSession
-from numpy import array_split
 
 from config import get_usernames_and_config, get_username_group_and_config, Setting
 from stats import ReasonForFailure, record_successful_poll, record_failed_poll, \
@@ -160,8 +159,14 @@ class PollingCog(commands.Cog):
         
         # Increment username counter, and adjust it if it falls out of range.
         # Then, submit GET request.
-        username, response, counter_was_reset = \
+        username, response, counter_was_reset, e = \
             await self.get_next_user(usernames, group_number)
+        if e is not None:
+            await self.error(f"Connection broke when polling for @{username}: {e}",
+                             ReasonForFailure.CONNECTION_BROKEN, username,
+                             group_number)
+            record_failed_poll(username, ReasonForFailure.CONNECTION_BROKEN)
+            return
         if counter_was_reset:
             self.print_char(str(group_number), group_number)
 
@@ -271,7 +276,7 @@ class PollingCog(commands.Cog):
 
     async def get_next_user(self, usernames: list[str], group_number: int):
         """Returns tuple (username, response, was this group's user
-        counter reset?)"""
+        counter reset?, exception if get failed)"""
 
         reset_counter = False
         self.poller_username_counters[group_number] += 1
@@ -279,10 +284,14 @@ class PollingCog(commands.Cog):
             self.poller_username_counters[group_number] = 0
             reset_counter = True
         username = usernames[self.poller_username_counters[group_number]]
-        response = await self.session[group_number].get(
-            f"https://www.tiktok.com/@{username}", cookies=self.cookies,
-            headers=self.headers)
-        return username, response, reset_counter
+        response = None
+        try:
+            response = await self.session[group_number].get(
+                f"https://www.tiktok.com/@{username}", cookies=self.cookies,
+                headers=self.headers)
+        except Exception as e:
+            return username, response, reset_counter, e
+        return username, response, reset_counter, None
     
     def check_for_error_div(self, div_elements):
         """Returns empty list if there was no error div. Returns a list
@@ -458,9 +467,9 @@ class PollingCog(commands.Cog):
         user = await self.client.fetch_user(user_id)
         await user.send(msg)
     
-    async def error(self, msg: str, error_type: ReasonForFailure=None, username: str=None,
-                    group_number: int=None, attach_this: str=None,
-                    filename_override: str=None):
+    async def error(self, msg: str, error_type: ReasonForFailure=None,
+                    username: str=None, group_number: int=None,
+                    attach_this: str=None, filename_override: str=None):
         if group_number is not None:
             self.print_char('!', group_number)
         if error_type is not None and username is not None:
